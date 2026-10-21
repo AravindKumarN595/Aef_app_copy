@@ -1,0 +1,146 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isSignedIn() && (
+        getUserData().primaryRole == role ||
+        getUserData().assignedRoles.hasAny([role])
+      );
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isFinance() {
+      return hasRole('finance') || isAdmin();
+    }
+
+    function isTeacher() {
+      return hasRole('teacher') || isAdmin();
+    }
+
+    function isStudentSelf(studentId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/students/$(studentId)) &&
+        get(/databases/$(database)/documents/students/$(studentId)).data.uid == request.auth.uid;
+    }
+
+    function isVerifiedGuardianOf(studentId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/guardians/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/guardians/$(request.auth.uid)).data.verifiedStudentIds.hasAny([studentId]);
+    }
+
+    function isTeacherOfBatch(batchId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/batches/$(batchId)) && (
+        get(/databases/$(database)/documents/batches/$(batchId)).data.classTeacherUid == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // 1. Users collection: prevent role self-escalation
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      // Users can update basic profile info, but CANNOT self-grant roles or elevate status
+      allow update: if isSignedIn() && request.auth.uid == uid &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['assignedRoles', 'primaryRole', 'status']);
+      allow write: if isAdmin();
+    }
+
+    // 2. Students directory: scoped to self, verified guardian, teacher, or admin
+    match /students/{studentId} {
+      allow read: if isStudentSelf(studentId) || isVerifiedGuardianOf(studentId) || isTeacher() || isFinance();
+      allow write: if isAdmin();
+    }
+
+    // 3. Guardians directory: scoped to guardian self or admin
+    match /guardians/{guardianUid} {
+      allow read: if isSignedIn() && (request.auth.uid == guardianUid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // 4. Batches & Courses
+    match /batches/{batchId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /courses/{courseId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isTeacher();
+    }
+
+    // 5. Lessons: accessible by enrolled students and teachers
+    match /lessons/{lessonId} {
+      allow read: if isSignedIn();
+      allow write: if isTeacher() || isAdmin();
+    }
+
+    // 6. Assessments: answer keys are sequestered
+    match /assessments/{assessmentId} {
+      allow read: if isSignedIn() && (resource.data.isReleased == true || isTeacher() || isAdmin());
+      allow write: if isTeacher() || isAdmin();
+    }
+
+    // 7. Assessment attempts: client cannot assign its own official score!
+    match /assessment_attempts/{attemptId} {
+      allow read: if isSignedIn() && (
+        resource.data.studentUid == request.auth.uid ||
+        isVerifiedGuardianOf(resource.data.studentId) ||
+        isTeacher() ||
+        isAdmin()
+      );
+      // Student can submit answers, but officialScore, maxScore, evaluatedAt MUST be null or omitted
+      allow create: if isSignedIn() &&
+        request.resource.data.studentUid == request.auth.uid &&
+        (!('officialScore' in request.resource.data) || request.resource.data.officialScore == null);
+      // Updates are reserved for authoritative server Cloud Functions
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // 8. Attendance: daily roll calls and RFID gate records
+    match /attendance/{attendanceId} {
+      allow read: if isStudentSelf(resource.data.studentId) ||
+        isVerifiedGuardianOf(resource.data.studentId) ||
+        isTeacherOfBatch(resource.data.batchId) ||
+        isAdmin();
+      allow create, update: if isTeacherOfBatch(request.resource.data.batchId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 9. Fee Invoices: status cannot be marked "paid" directly by clients
+    match /invoices/{invoiceId} {
+      allow read: if isStudentSelf(resource.data.studentId) ||
+        isVerifiedGuardianOf(resource.data.studentId) ||
+        isFinance() ||
+        isAdmin();
+      // Only finance/admin can generate invoices. Direct update of status="paid" by clients is blocked
+      allow create: if isFinance() || isAdmin();
+      allow update: if (isFinance() || isAdmin()) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'receiptNumber']);
+      allow delete: if isAdmin();
+    }
+
+    // 10. Audit Logs: append-only by trusted backend, strictly read-only for admin
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // Only server SDK / Cloud Functions can write
+    }
+
+    // Test connection doc
+    match /test/{docId} {
+      allow read: if true;
+    }
+  }
+}

@@ -1,0 +1,189 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and role credentials",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "primaryRole": { "type": "string", "enum": ["student", "parent", "teacher", "finance", "admin"] },
+        "assignedRoles": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "displayName", "primaryRole", "assignedRoles"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Enrolled student scholastic record",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "fullName": { "type": "string" },
+        "rollNumber": { "type": "string" },
+        "grade": { "type": "string" },
+        "section": { "type": "string" },
+        "board": { "type": "string", "enum": ["CBSE", "ICSE"] },
+        "house": { "type": "string" },
+        "guardianUids": { "type": "array", "items": { "type": "string" } },
+        "currentBatchIds": { "type": "array", "items": { "type": "string" } },
+        "feeAccountId": { "type": "string" }
+      },
+      "required": ["fullName", "rollNumber", "grade", "board"]
+    },
+    "Guardian": {
+      "title": "Guardian",
+      "description": "Parent or legal guardian account with verified linked wards",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "verifiedStudentIds": { "type": "array", "items": { "type": "string" } },
+        "verificationStatus": { "type": "string", "enum": ["verified", "pending_kyc"] }
+      },
+      "required": ["fullName", "verifiedStudentIds"]
+    },
+    "Batch": {
+      "title": "Batch",
+      "description": "Academic cohort and classroom section",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "grade": { "type": "string" },
+        "section": { "type": "string" },
+        "board": { "type": "string" },
+        "classTeacherUid": { "type": "string" },
+        "roomNumber": { "type": "string" }
+      },
+      "required": ["name", "grade", "section", "classTeacherUid"]
+    },
+    "Lesson": {
+      "title": "Lesson",
+      "description": "Course lesson and study notes",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "batchIds": { "type": "array", "items": { "type": "string" } },
+        "chapterNumber": { "type": "number" },
+        "title": { "type": "string" },
+        "notesStoragePath": { "type": "string" },
+        "approvedCurriculumText": { "type": "string" }
+      },
+      "required": ["title", "batchIds"]
+    },
+    "Assessment": {
+      "title": "Assessment",
+      "description": "Diagnostic quiz without client-accessible answer keys",
+      "type": "object",
+      "properties": {
+        "batchId": { "type": "string" },
+        "subject": { "type": "string" },
+        "title": { "type": "string" },
+        "isReleased": { "type": "boolean" },
+        "questions": { "type": "array" }
+      },
+      "required": ["batchId", "title", "questions"]
+    },
+    "AssessmentAttempt": {
+      "title": "AssessmentAttempt",
+      "description": "Student quiz submission with server-evaluated score",
+      "type": "object",
+      "properties": {
+        "assessmentId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentUid": { "type": "string" },
+        "submittedAnswers": { "type": "object" },
+        "officialScore": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "evaluatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["assessmentId", "studentId", "studentUid", "submittedAnswers"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Daily student gate and classroom attendance",
+      "type": "object",
+      "properties": {
+        "batchId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["present", "absent", "late", "excused"] },
+        "method": { "type": "string", "enum": ["rfid_gate", "teacher_rollcall"] },
+        "verifiedByUid": { "type": "string" }
+      },
+      "required": ["batchId", "studentId", "date", "status"]
+    },
+    "FeeInvoice": {
+      "title": "FeeInvoice",
+      "description": "Tuition fee invoice with server-controlled payment status",
+      "type": "object",
+      "properties": {
+        "invoiceNumber": { "type": "string" },
+        "studentId": { "type": "string" },
+        "term": { "type": "string" },
+        "amountDue": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "paid", "failed", "overdue"] },
+        "dueDate": { "type": "string" }
+      },
+      "required": ["invoiceNumber", "studentId", "amountDue", "status"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable security and governance event log",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "actorUid": { "type": "string" },
+        "actorRole": { "type": "string" },
+        "action": { "type": "string" },
+        "targetEntity": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["timestamp", "actorUid", "action", "targetEntity"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles and RBAC role assignments"
+    },
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Enrolled student directory"
+    },
+    "/guardians/{guardianUid}": {
+      "schema": { "$ref": "#/entities/Guardian" },
+      "description": "Guardian records with verified linked students"
+    },
+    "/batches/{batchId}": {
+      "schema": { "$ref": "#/entities/Batch" },
+      "description": "Academic cohort definitions and teacher assignments"
+    },
+    "/lessons/{lessonId}": {
+      "schema": { "$ref": "#/entities/Lesson" },
+      "description": "Curriculum lessons and authorized study materials"
+    },
+    "/assessments/{assessmentId}": {
+      "schema": { "$ref": "#/entities/Assessment" },
+      "description": "Diagnostic assessments"
+    },
+    "/assessment_attempts/{attemptId}": {
+      "schema": { "$ref": "#/entities/AssessmentAttempt" },
+      "description": "Student assessment submissions and official scores"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": { "$ref": "#/entities/AttendanceRecord" },
+      "description": "Biometric RFID and roll-call attendance logs"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/FeeInvoice" },
+      "description": "Tuition fees and billing ledger"
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "System security audit trail"
+    }
+  }
+}
